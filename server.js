@@ -77,15 +77,28 @@ app.post('/capture', async (req, res) => {
 
   console.log(`Démarrage capture pour ${country}...`);
 
+  let browser;
   try {
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    // Lancer Puppeteer avec les bonnes options pour Render
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--single-process',
+      ],
     });
 
     const homepage = `https://www.sephora.${domain}/`;
     const page = await browser.newPage();
-    await page.goto(homepage, { waitUntil: 'networkidle2', timeout: 30000 });
+    
+    // Augmenter le timeout
+    page.setDefaultTimeout(60000);
+    page.setDefaultNavigationTimeout(60000);
+    
+    await page.goto(homepage, { waitUntil: 'networkidle2', timeout: 60000 });
 
     console.log(`✓ Homepage chargée: ${homepage}`);
 
@@ -137,7 +150,7 @@ app.post('/capture', async (req, res) => {
       console.log(`✓ Redirection UB2 capturée`);
     }
 
-    await browser.close();
+    await page.close();
 
     // 5. Envoyer à Notion
     const weekNumber = Math.ceil((new Date().getDate() - new Date().getDay() + 4) / 7);
@@ -147,12 +160,9 @@ app.post('/capture', async (req, res) => {
         parent: { database_id: notionDatabaseId },
         properties: {
           'Semaine': { number: weekNumber },
-          'Pays': { title: [{ text: { content: country } }] },
+          'Pays': { select: { name: country } },
           'Homepage': { url: homepageUrl },
-          'Main Banner': { url: mainBannerUrl },
-          'UB1': { url: ub1Url },
-          'UB2': { url: ub2Url },
-          'Redirection Main Banner': { url: redirectMainUrl },
+          'Redirection Main': { url: redirectMainUrl },
           'Redirection UB1': { url: redirectUb1Url },
           'Redirection UB2': { url: redirectUb2Url },
         },
@@ -182,6 +192,10 @@ app.post('/capture', async (req, res) => {
   } catch (error) {
     console.error(`✗ Erreur pour ${country}:`, error.message);
     res.status(500).json({ error: error.message });
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 });
 
